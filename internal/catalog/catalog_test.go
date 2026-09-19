@@ -41,10 +41,9 @@ func (f *fakeClient) set(resp pluginapi.HTTPResponse, err error) {
 func testCfg() config.Config {
 	return config.Config{
 		CatalogURL:       "https://opencode.ai/zen/go/v1/models",
-		ModelPrefix:      config.ModelPrefix{Enabled: true, Value: "opencode-go"},
+		ModelPrefix:      "opencode-go",
 		MaxResponseBytes: 1 << 20,
 		Catalog:          config.Catalog{StaleWhileUnavailable: true},
-		Protocols:        config.Protocols{ChatCompletions: true, Messages: true, Responses: true},
 	}
 }
 
@@ -455,7 +454,7 @@ func TestRefreshErrorClearsWhenNoStale(t *testing.T) {
 
 func TestPublicIDWithoutPrefix(t *testing.T) {
 	cfg := testCfg()
-	cfg.ModelPrefix.Enabled = false
+	cfg.ModelPrefix = ""
 	fc := &fakeClient{resp: pluginapi.HTTPResponse{StatusCode: 200, Body: []byte(`{"data":[{"id":"glm-5.2"}]}`)}}
 	m := newManager(cfg, fc)
 	mustRefresh(t, m)
@@ -513,7 +512,7 @@ func TestSeedFromServesOldRecordsWithNewCfg(t *testing.T) {
 
 	cfg := testCfg()
 	cfg.CatalogURL = "https://mirror.test/api/models"
-	cfg.ModelPrefix.Enabled = false
+	cfg.ModelPrefix = ""
 	fc := &fakeClient{}
 	m := newManager(cfg, fc)
 	m.SeedFrom(prev)
@@ -641,83 +640,6 @@ func TestConcurrentRefreshAndReads(t *testing.T) {
 	readerWG.Wait()
 }
 
-func TestProtocolFlagsExcludeRoutes(t *testing.T) {
-	catalogBody := `{"data":[
-		{"id":"glm-5.2"},
-		{"id":"qwen3.7-max"},
-		{"id":"gpt-5.6-luna"}
-	]}`
-	routes := []struct {
-		protocol  string
-		field     func(p config.Protocols) bool
-		excluded  string
-		routableA string
-		routableB string
-	}{
-		{"chat-completions", func(p config.Protocols) bool { return p.ChatCompletions }, "glm-5.2", "qwen3.7-max", "gpt-5.6-luna"},
-		{"messages", func(p config.Protocols) bool { return p.Messages }, "qwen3.7-max", "glm-5.2", "gpt-5.6-luna"},
-		{"responses", func(p config.Protocols) bool { return p.Responses }, "gpt-5.6-luna", "glm-5.2", "qwen3.7-max"},
-	}
-	for _, tc := range routes {
-		t.Run(tc.protocol, func(t *testing.T) {
-			cfg := testCfg()
-			switch tc.protocol {
-			case "chat-completions":
-				cfg.Protocols.ChatCompletions = false
-			case "messages":
-				cfg.Protocols.Messages = false
-			case "responses":
-				cfg.Protocols.Responses = false
-			}
-			fc := &fakeClient{resp: pluginapi.HTTPResponse{StatusCode: 200, Body: []byte(catalogBody)}}
-			m := newManager(cfg, fc)
-			mustRefresh(t, m)
-
-			models := m.Models()
-			for _, mo := range models {
-				if mo.UpstreamID == tc.excluded {
-					t.Errorf("disabled-protocol model %q still routable: %+v", tc.excluded, mo)
-				}
-			}
-			findModel(t, models, tc.routableA)
-			findModel(t, models, tc.routableB)
-
-			unsup := m.Unsupported()
-			if len(unsup) != 1 || unsup[0].UpstreamID != tc.excluded ||
-				unsup[0].Reason != fmt.Sprintf("protocol %s disabled by config", map[string]Route{
-					"chat-completions": RouteChatCompletions,
-					"messages":         RouteMessages,
-					"responses":        RouteResponses,
-				}[tc.protocol]) {
-				t.Fatalf("unsupported = %+v, want %q excluded with disabled-reason", unsup, tc.excluded)
-			}
-		})
-	}
-}
-
-func TestProtocolFlagsAllOnKeepsEverything(t *testing.T) {
-	fc := &fakeClient{resp: pluginapi.HTTPResponse{StatusCode: 200, Body: []byte(`{"data":[
-		{"id":"glm-5.2"},{"id":"qwen3.7-max"},{"id":"gpt-5.6-luna"}
-	]}`)}}
-	m := newManager(testCfg(), fc)
-	mustRefresh(t, m)
-	if got := len(m.Models()); got != 3 {
-		t.Fatalf("models = %d, want all three routable with default flags", got)
-	}
-	if len(m.Unsupported()) != 0 {
-		t.Fatalf("unexpected unsupported entries: %+v", m.Unsupported())
-	}
-}
-
-func TestProtocolEnabledUnknownRouteDefaultsTrue(t *testing.T) {
-	m := newManager(testCfg(), &fakeClient{})
-	if !m.protocolEnabled(Route("bogus")) {
-		t.Fatal("unknown routes must default to enabled")
-	}
-}
-
-// TestOverrideApplicationRecordedInWarnings pins spec 04 §5: an applied
-// user route override MUST be visible in diagnostics.
 func TestOverrideApplicationRecordedInWarnings(t *testing.T) {
 	cfg := testCfg()
 	cfg.RouteOverrides = map[string]config.RouteOverride{
@@ -954,50 +876,6 @@ func TestSeedFromRevalidatesEndpointsAgainstNewBase(t *testing.T) {
 	findModel(t, prev.Models(), "totally-new-x")
 }
 
-// TestSeedFromAppliesProtocolKillSwitch pins the seed-revalidation fix: a
-// protocol disabled between snapshots must demote its routed records at
-// seed time. Otherwise an operator flipping protocols.messages=false during
-// a catalog outage keeps serving messages-routed models off the stale
-// snapshot until a refresh succeeds — the kill-switch is inert exactly when
-// it needs to bite.
-func TestSeedFromAppliesProtocolKillSwitch(t *testing.T) {
-	body := `{"data":[{"id":"minimax-m3"},{"id":"glm-5.2"}]}`
-	prev := newManager(testCfg(), &fakeClient{resp: pluginapi.HTTPResponse{
-		StatusCode: 200,
-		Body:       []byte(body),
-	}})
-	mustRefresh(t, prev)
-	findModel(t, prev.Models(), "minimax-m3") // precondition: routable pre-seed
-
-	cfg := testCfg()
-	cfg.Protocols.Messages = false
-	m := newManager(cfg, &fakeClient{})
-	m.SeedFrom(prev)
-
-	for _, mo := range m.Models() {
-		if mo.Protocol == RouteMessages {
-			t.Fatalf("disabled-protocol record still routable after seed: %+v", mo)
-		}
-	}
-	findModel(t, m.Models(), "glm-5.2") // unaffected route keeps serving
-	if _, ok := m.Lookup("minimax-m3"); ok {
-		t.Fatal("disabled-protocol record must not resolve via Lookup")
-	}
-	var found bool
-	for _, u := range m.Unsupported() {
-		if u.UpstreamID == "minimax-m3" && u.Reason == "protocol messages disabled by config" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("unsupported = %+v, want minimax-m3 demotion diagnostic", m.Unsupported())
-	}
-	findModel(t, prev.Models(), "minimax-m3") // seeding must not mutate prev
-}
-
-// TestSeedFromRecomputesPublicIDsUnderNewPrefix pins prefix recomputation at
-// seed time: records rebuilt from prev's raw entries publish m's configured
-// prefix value, and prev's prefixed public id stops resolving.
 func TestSeedFromRecomputesPublicIDsUnderNewPrefix(t *testing.T) {
 	prev := newManager(testCfg(), &fakeClient{resp: pluginapi.HTTPResponse{
 		StatusCode: 200,
@@ -1009,7 +887,7 @@ func TestSeedFromRecomputesPublicIDsUnderNewPrefix(t *testing.T) {
 	}
 
 	cfg := testCfg()
-	cfg.ModelPrefix.Value = "og"
+	cfg.ModelPrefix = "og"
 	m := newManager(cfg, &fakeClient{})
 	m.SeedFrom(prev)
 

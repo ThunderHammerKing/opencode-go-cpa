@@ -20,9 +20,10 @@ func TestWindowPercentages(t *testing.T) {
 	want := map[string]struct {
 		spent, limit, pct float64
 	}{
-		Window5h:      {7.20, 3.0, 240.0},
-		WindowWeekly:  {7.20, 7.5, 96.0},
-		WindowMonthly: {7.20, 15.0, 48.0},
+		// 1.40 + 4.40 (req 1) + 1.40 input + 0.26 cached (req 2) = 7.46
+		Window5h:      {7.46, 3.0, 248.67},
+		WindowWeekly:  {7.46, 7.5, 99.47},
+		WindowMonthly: {7.46, 15.0, 49.73},
 	}
 	for _, w := range snap.Models[0].Windows {
 		e := want[w.Name]

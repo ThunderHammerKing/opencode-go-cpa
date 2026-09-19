@@ -872,7 +872,7 @@ func TestResponsesStreamingRoundTrip(t *testing.T) {
 func TestPrefixDisabledE2E(t *testing.T) {
 	m, _, _, yamlText := newIntegrationManager(t)
 	resp := mustHandle(t, m, "plugin.reconfigure",
-		lifecycleRequestBody(yamlText+"model-prefix:\n  enabled: false\n"))
+		lifecycleRequestBody(yamlText+"model-prefix: \"\"\n"))
 	if env := decodeEnv(t, resp); !env.OK {
 		t.Fatalf("reconfigure: %s", resp)
 	}

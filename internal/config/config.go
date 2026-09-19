@@ -29,11 +29,12 @@ const (
 )
 
 // DefaultSessionHeaders is the ordered list of downstream-native conversation
-// headers consulted when deriving the upstream x-opencode-session. Codex and
-// Claude Code are recognised by OpenCode Go natively, so preserving their
-// headers keeps session affinity and prompt caching intact.
+// headers consulted when deriving the upstream x-opencode-session. CPA's own
+// affinity header comes first, then Codex and Claude Code native headers —
+// OpenCode Go recognises those natively, so preserving them keeps session
+// affinity and prompt caching intact.
 var DefaultSessionHeaders = []string{
-	"Session-Id", "X-Claude-Code-Session-Id", "X-OpenCode-Session", "X-Session-Id",
+	"X-Session-Affinity", "Session-Id", "X-Claude-Code-Session-Id", "X-OpenCode-Session", "X-Session-Id",
 }
 
 type Catalog struct {
@@ -195,8 +196,8 @@ func Load(yamlBytes []byte) (Config, error) {
 		RequestTimeout:   requestTimeout,
 		MaxResponseBytes: orDefault(raw.MaxResponseBytes, DefaultMaxResponseBytes),
 	}
-	if c.MaxConcurrentPerKey < 0 {
-		c.MaxConcurrentPerKey = 0 // 0 = unlimited
+	if c.Pool.MaxConcurrentPerKey < 0 {
+		c.Pool.MaxConcurrentPerKey = 0 // 0 = unlimited
 	}
 	if raw.CatalogURL != nil {
 		// Mirror the derived-default trim so an explicit trailing-slash

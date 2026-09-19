@@ -606,7 +606,11 @@ func (m *Manager) observeUsage(req executorRequest, res *resolvedExecution, body
 	if in <= 0 && out <= 0 {
 		return
 	}
-	m.usage.Observe(req.AuthID, res.rec.UpstreamID, in, u.PromptTokensDetails.CachedTokens, out, time.Now())
+	var cached int64
+	if u.PromptTokensDetails != nil {
+		cached = u.PromptTokensDetails.CachedTokens
+	}
+	m.usage.Observe(req.AuthID, res.rec.UpstreamID, in, cached, out, time.Now())
 }
 
 // usageFromChunk best-effort extracts token usage from one upstream SSE
@@ -662,7 +666,10 @@ func usageFromChunk(payload []byte) (input, cached, output int64, ok bool) {
 				in, out = u.InputTokens, u.OutputTokens
 			}
 			if in > 0 || out > 0 {
-				input, cached, output, ok = in, u.PromptTokensDetails.CachedTokens, out, true
+				if u.PromptTokensDetails != nil {
+					cached = u.PromptTokensDetails.CachedTokens
+				}
+				input, output, ok = in, out, true
 			}
 		case msg.Message != nil && msg.Message.Usage != nil:
 			u := msg.Message.Usage

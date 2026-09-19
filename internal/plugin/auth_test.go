@@ -90,11 +90,26 @@ func TestAuthDispatchMethods(t *testing.T) {
 	if !got.Handled || got.Auth.Attributes["api_key"] != "sk-dispatch-1" {
 		t.Fatalf("parse dispatch = %#v", got)
 	}
-	for _, method := range []string{pluginabi.MethodAuthLoginStart, pluginabi.MethodAuthLoginPoll} {
-		raw, _ = m.HandleCall(method, []byte(`{}`))
-		if env := decodeEnv(t, raw); env.OK || env.Error == nil || env.Error.Code != "unsupported" {
-			t.Fatalf("%s = %#v", method, env.Error)
-		}
+	// Login is implemented (paste-key flow): start returns a page URL and a
+	// pollable state; an unknown state polls to an error status inside an OK
+	// envelope.
+	raw, err = m.HandleCall(pluginabi.MethodAuthLoginStart, []byte(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started pluginapi.AuthLoginStartResponse
+	decodeResult(t, raw, &started)
+	if started.State == "" || !strings.Contains(started.URL, "/login?state=") {
+		t.Fatalf("login start = %#v", started)
+	}
+	raw, err = m.HandleCall(pluginabi.MethodAuthLoginPoll, mustJSON(struct{ pluginapi.AuthLoginPollRequest }{pluginapi.AuthLoginPollRequest{Provider: ProviderID, State: "unknown-state"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var polled pluginapi.AuthLoginPollResponse
+	decodeResult(t, raw, &polled)
+	if polled.Status != pluginapi.AuthLoginStatusError {
+		t.Fatalf("unknown-state poll = %#v", polled)
 	}
 	raw, err = m.HandleCall(pluginabi.MethodAuthRefresh, mustJSON(struct{ pluginapi.AuthRefreshRequest }{pluginapi.AuthRefreshRequest{AuthID: "id", AuthProvider: ProviderID, Attributes: map[string]string{"api_key": "sk-refresh-1"}}}))
 	if err != nil {

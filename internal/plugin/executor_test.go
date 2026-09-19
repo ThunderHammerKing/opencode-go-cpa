@@ -17,6 +17,7 @@ import (
 
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/adapter/shared"
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/catalog"
+	"github.com/ThunderHammerKing/opencode-go-cpa/internal/config"
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/errclass"
 )
 
@@ -243,10 +244,15 @@ func assertSessionHeaders(t *testing.T, wire map[string]any, wantSession, wantAu
 	} else if got, ok := headers["X-Api-Key"]; !ok || got.([]any)[0].(string) != testKey {
 		t.Fatalf("x-api-key missing: %v", headers)
 	}
-	for _, forbidden := range []string{"X-Opencode-Client", "X-Opencode-Request", "X-Opencode-Project", "User-Agent"} {
+	// The internal x-opencode-* block stays forbidden (impersonation), but a
+	// client-own User-Agent is REQUIRED by the OpenCode Go docs.
+	for _, forbidden := range []string{"X-Opencode-Client", "X-Opencode-Request", "X-Opencode-Project"} {
 		if _, ok := headers[forbidden]; ok {
 			t.Fatalf("forbidden header %q present: %v", forbidden, headers)
 		}
+	}
+	if ua, ok := headers["User-Agent"]; !ok || len(ua.([]any)) == 0 || ua.([]any)[0].(string) != config.DefaultUserAgent {
+		t.Fatalf("user-agent missing or wrong: %v", headers)
 	}
 }
 
@@ -1232,7 +1238,7 @@ func TestRegistrationCapabilitiesIncludeExecutor(t *testing.T) {
 	}
 	var reg registrationResult
 	decodeResult(t, resp, &reg)
-	want := []string{"openai", "claude", "openai-response"}
+	want := []string{"chat-completions"} // host translates Claude/Codex clients
 	if !reg.Capabilities.Executor || !reg.Capabilities.AuthProvider ||
 		!reflectDeepEqualStrings(reg.Capabilities.ExecutorInputFormats, want) ||
 		!reflectDeepEqualStrings(reg.Capabilities.ExecutorOutputFormats, want) {
@@ -1309,7 +1315,7 @@ func TestConvertNonStreamSeamBranches(t *testing.T) {
 	if got := catalog.JoinUpstreamURL("https://gw.test/", "/v1/responses"); got != "https://gw.test/responses" {
 		t.Fatalf("url join = %q", got)
 	}
-	if got := upstreamAuthHeaders(catalog.RouteChatCompletions, "k", "session"); got.Get("Authorization") != "Bearer k" || got.Get("x-opencode-session") != "session" {
+	if got := upstreamAuthHeaders(config.Config{Identity: config.Identity{ForwardSession: true}}, catalog.RouteChatCompletions, "k", "session"); got.Get("Authorization") != "Bearer k" || got.Get("x-opencode-session") != "session" {
 		t.Fatalf("bearer headers = %v", got)
 	}
 	// Adapters own status classification uniformly (§7).

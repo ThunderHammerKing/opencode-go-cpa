@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+
+	"github.com/ThunderHammerKing/opencode-go-cpa/internal/config"
 )
 
 func TestResolveOpenCodeSessionIDPrecedence(t *testing.T) {
@@ -23,7 +25,7 @@ func TestResolveOpenCodeSessionIDPrecedence(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			req := executorRequest{ExecutorRequest: pluginapi.ExecutorRequest{Metadata: tc.metadata, Headers: tc.headers, SourceFormat: "openai", OriginalRequest: []byte(fallbackBody)}}
-			got, eErr := resolveOpenCodeSessionID(req)
+			got, eErr := resolveOpenCodeSessionID(config.Config{}, req)
 			if eErr != nil || got != tc.want {
 				t.Fatalf("session = %q, error = %v, want %q", got, eErr, tc.want)
 			}
@@ -31,7 +33,7 @@ func TestResolveOpenCodeSessionIDPrecedence(t *testing.T) {
 	}
 
 	req := executorRequest{ExecutorRequest: pluginapi.ExecutorRequest{SourceFormat: "openai", OriginalRequest: []byte(fallbackBody)}}
-	got, eErr := resolveOpenCodeSessionID(req)
+	got, eErr := resolveOpenCodeSessionID(config.Config{}, req)
 	want, wantErr := deriveOpenCodeSessionID(req.SourceFormat, req.OriginalRequest)
 	if eErr != wantErr || got != want {
 		t.Fatalf("fallback session = %q, error = %v, want %q, error %v", got, eErr, want, wantErr)

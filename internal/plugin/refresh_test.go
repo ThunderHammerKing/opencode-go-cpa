@@ -99,7 +99,7 @@ func twoKeyFixture(t *testing.T) (config.Config, *catalog.Manager, *HostBridge, 
 // configured key when that key fails.
 func TestRefreshUsesFirstConfiguredKey(t *testing.T) {
 	cfg, mgr, bridge, rec := twoKeyFixture(t)
-	if err := refreshOnce(context.Background(), mgr, bridge, time.Second, cfg); err == nil {
+	if err := refreshOnce(context.Background(), mgr, bridge, time.Second, cfg, cfg.APIKeys[0].Value); err == nil {
 		t.Fatal("expected first configured key failure")
 	}
 	auths := rec.seen()
@@ -124,7 +124,7 @@ func TestRefreshUnsupportedLogQuotesNewlineIDs(t *testing.T) {
 	rec := &authRecorder{body: []byte(`{"data":[{"id":"evil\n2027-01-01 ERROR forged host.log line"}]}`)}
 	bridge := NewHostBridge(rec.call)
 	mgr := catalog.New(cfg, bridge)
-	if err := refreshOnce(context.Background(), mgr, bridge, time.Second, cfg); err != nil {
+	if err := refreshOnce(context.Background(), mgr, bridge, time.Second, cfg, cfg.APIKeys[0].Value); err != nil {
 		t.Fatalf("refreshOnce: %v", err)
 	}
 	logCalls := rec.logCalls()

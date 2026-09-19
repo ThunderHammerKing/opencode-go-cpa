@@ -344,17 +344,10 @@ func (m *Manager) swap(entries []rawModel, extraWarns ...string) {
 	m.raw, m.models, m.index, m.unsup, m.warns = entries, models, index, unsup, warns
 }
 
-// protocolEnabled reports whether the resolved route's protocol flag is on
-// (spec 04 §4); flags default to true.
+// protocolEnabled reports whether the resolved route may serve traffic.
+// Protocol toggles were dropped from the schema: every model routes to the
+// endpoint its family requires, so all routes are always enabled.
 func (m *Manager) protocolEnabled(r Route) bool {
-	switch r {
-	case RouteChatCompletions:
-		return m.cfg.Protocols.ChatCompletions
-	case RouteMessages:
-		return m.cfg.Protocols.Messages
-	case RouteResponses:
-		return m.cfg.Protocols.Responses
-	}
 	return true
 }
 

@@ -223,7 +223,7 @@ func manualTick(t *testing.T, m *Manager) {
 	if mgr == nil {
 		t.Fatal("no served manager to tick")
 	}
-	if err := refreshOnce(context.Background(), mgr, m.bridge, time.Second, cfg); err != nil {
+	if err := refreshOnce(context.Background(), mgr, m.bridge, time.Second, cfg, testKey); err != nil {
 		t.Fatalf("tick refresh: %v", err)
 	}
 }
@@ -425,8 +425,8 @@ func TestRegisterSuccessPublishesModels(t *testing.T) {
 	if reg.SchemaVersion != pluginabi.SchemaVersion {
 		t.Fatalf("schema_version = %d, want %d", reg.SchemaVersion, pluginabi.SchemaVersion)
 	}
-	if reg.Metadata.Name != "opencode-go-cliproxyapi" || reg.Metadata.Version != pluginVersion ||
-		len(reg.Metadata.ConfigFields) != 0 {
+	if reg.Metadata.Name != pluginName || reg.Metadata.Version != pluginVersion ||
+		len(reg.Metadata.ConfigFields) == 0 {
 		t.Fatalf("metadata wrong: %+v", reg.Metadata)
 	}
 	if !reg.Capabilities.ModelProvider || !reg.Capabilities.AuthProvider {
@@ -668,7 +668,7 @@ func TestReconfigureSwapsPrefixIDs(t *testing.T) {
 	if _, err := m.HandleCall("plugin.register", lifecycleRequestBody(testValidYAML)); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	noPrefix := testValidYAML + "model-prefix:\n  enabled: false\n"
+	noPrefix := testValidYAML + "model-prefix: \"\"\n"
 	if _, err := m.HandleCall("plugin.reconfigure", lifecycleRequestBody(noPrefix)); err != nil {
 		t.Fatalf("reconfigure: %v", err)
 	}
@@ -924,7 +924,7 @@ func TestConcurrentHandleCalls(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			body := lifecycleRequestBody(testValidYAML)
 			if i%2 == 1 {
-				body = lifecycleRequestBody(testValidYAML + "model-prefix:\n  enabled: false\n")
+				body = lifecycleRequestBody(testValidYAML + "model-prefix: \"\"\n")
 			}
 			if _, err := m.HandleCall("plugin.reconfigure", body); err != nil {
 				t.Errorf("reconfigure: %v", err)
@@ -1158,7 +1158,7 @@ func TestReconfigureFailedRefreshHonorsStalePolicy(t *testing.T) {
 		wantImmediate bool // model visible right after the failed reconfigure
 	}{
 		{name: "stale enabled keeps carryover", policyYAML: "", wantImmediate: true},
-		{name: "fail closed empties immediately", policyYAML: "catalog:\n  stale-while-unavailable: false\n", wantImmediate: false},
+		{name: "fail closed empties immediately", policyYAML: "stale-while-unavailable: false\n", wantImmediate: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var fetches atomic.Int64
