@@ -25,7 +25,7 @@ const (
 	DefaultRequestTimeout   = 5 * time.Minute
 	DefaultMaxResponseBytes = int64(67108864) // 64 MiB
 	DefaultMaxConcurrent    = 4               // per credential
-	DefaultUserAgent        = "opencode-go-cpa/0.1.3"
+	DefaultUserAgent        = "opencode-go-cpa/0.1.4"
 )
 
 // DefaultSessionHeaders is the ordered list of downstream-native conversation

@@ -14,7 +14,7 @@ plugins:
     - "https://raw.githubusercontent.com/ThunderHammerKing/opencode-go-cpa/main/registry.json"
 ```
 
-方式二（手动）：从 Releases 下载对应平台的压缩包，把动态库放进插件目录（macOS ARM 为 `plugins/darwin/arm64/opencode-go-cpa-v0.1.3.dylib`），并在配置里启用：
+方式二（手动）：从 Releases 下载对应平台的压缩包，把动态库放进插件目录（macOS ARM 为 `plugins/darwin/arm64/opencode-go-cpa-v0.1.4.dylib`），并在配置里启用：
 
 ```yaml
 plugins:
