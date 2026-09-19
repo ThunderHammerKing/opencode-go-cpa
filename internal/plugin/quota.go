@@ -44,7 +44,7 @@ func (m *Manager) HandleManagement(ctx context.Context, req pluginapi.Management
 	case req.Method == http.MethodGet && req.Path == quotaPagePath:
 		return htmlResponse(resources.QuotaPage), nil
 	case req.Method == http.MethodGet && req.Path == quotaDataPath:
-		return m.quotaData(ctx)
+		return m.quotaData(ctx, req.Query.Get("refresh") == "1")
 	case req.Method == http.MethodGet && req.Path == loginPagePath:
 		return htmlResponse(resources.LoginPage), nil
 	case req.Method == http.MethodPost && req.Path == loginPagePath:
@@ -58,12 +58,40 @@ func (m *Manager) HandleManagement(ctx context.Context, req pluginapi.Management
 	return pluginapi.ManagementResponse{StatusCode: http.StatusNotFound, Body: []byte(`{"error":"not found"}`)}, nil
 }
 
-// quotaData renders every known credential's local accounting snapshot.
-func (m *Manager) quotaData(ctx context.Context) (pluginapi.ManagementResponse, error) {
+// quotaCredential is one card on the quota page: the authoritative upstream
+// windows when they could be read, plus the local per-model estimate.
+type quotaCredential struct {
+	usage.Snapshot
+	Upstream *upstreamQuota `json:"upstream,omitempty"`
+}
+
+// authKeyByIndex resolves a credential's API key through the host, for the
+// upstream usage call.
+func (m *Manager) authKeyByIndex(ctx context.Context, authIndex string) string {
+	if m.bridge == nil || strings.TrimSpace(authIndex) == "" {
+		return ""
+	}
+	raw, err := m.bridge.AuthGet(ctx, authIndex)
+	if err != nil {
+		return ""
+	}
+	var rec struct {
+		APIKey string `json:"api_key"`
+	}
+	if json.Unmarshal(raw, &rec) != nil {
+		return ""
+	}
+	return strings.TrimSpace(rec.APIKey)
+}
+
+// quotaData renders every known credential's quota: real upstream windows
+// first (rolling/weekly/monthly percent + reset), local token accounting as
+// the per-model breakdown. refresh bypasses the usage cache.
+func (m *Manager) quotaData(ctx context.Context, refresh bool) (pluginapi.ManagementResponse, error) {
 	now := time.Now()
 	defer m.usage.Prune(now.Add(-31 * 24 * time.Hour))
 
-	credentials := make([]usage.Snapshot, 0, 4)
+	credentials := make([]quotaCredential, 0, 4)
 	seen := make(map[string]bool, 8)
 	if m.bridge != nil {
 		if entries, err := m.bridge.AuthList(ctx); err == nil {
@@ -106,7 +134,11 @@ func (m *Manager) quotaData(ctx context.Context) (pluginapi.ManagementResponse, 
 					continue
 				}
 				seen[id] = true
-				credentials = append(credentials, m.usage.Snapshot(id, e.Label, now))
+				cred := quotaCredential{Snapshot: m.usage.Snapshot(id, e.Label, now)}
+				if key := m.authKeyByIndex(ctx, e.AuthIndex); key != "" {
+					cred.Upstream = m.cachedUpstreamQuota(ctx, id, key, refresh)
+				}
+				credentials = append(credentials, cred)
 			}
 		}
 	}
@@ -119,14 +151,16 @@ func (m *Manager) quotaData(ctx context.Context) (pluginapi.ManagementResponse, 
 			continue
 		}
 		seen[id] = true
-		credentials = append(credentials, m.usage.Snapshot(id, label, now))
+		cred := quotaCredential{Snapshot: m.usage.Snapshot(id, label, now)}
+		cred.Upstream = m.cachedUpstreamQuota(ctx, id, k.Value, refresh)
+		credentials = append(credentials, cred)
 	}
 	if len(credentials) == 0 {
 		// Nothing enumerable yet — still surface whatever the login flow has
 		// recorded so a just-added credential is visible without a restart.
 		for authID, label := range m.usage.Credentials() {
 			if !seen[authID] {
-				credentials = append(credentials, m.usage.Snapshot(authID, label, now))
+				credentials = append(credentials, quotaCredential{Snapshot: m.usage.Snapshot(authID, label, now)})
 			}
 		}
 	}

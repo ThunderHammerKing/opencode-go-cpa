@@ -26,6 +26,7 @@
   td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid light-dark(#eee, #2a2a2a); }
   .empty { padding: 40px; text-align: center; opacity: .7; border: 1px dashed light-dark(#cfcfc8, #3a3a3a); border-radius: 10px; }
   .hint { margin-top: 10px; font-size: 12px; opacity: .6; }
+  .fallback { margin-top: 10px; font-size: 12px; opacity: .6; }
 </style>
 </head>
 <body>
@@ -34,28 +35,42 @@
   <button id="refresh">刷新</button>
 </header>
 <div id="content"><div class="empty">加载中…</div></div>
-<div class="hint">用量按本地记账估算（token × 官方价目表，5h / 每周 / 每月三个窗口），不是上游权威数据；上游 429 会把对应窗口标红。</div>
+<div class="hint">5 小时 / 每周 / 每月 三个窗口来自上游实时用量（与 console 一致）；下方「按模型明细」是本地记账估算（token × 官方价目表）。</div>
 <script>
 (function () {
-  var WINDOW_NAMES = { "5h": "5 小时", "weekly": "每周", "monthly": "每月" };
+  var UPSTREAM_WINDOWS = [["rolling", "5 小时"], ["weekly", "每周"], ["monthly", "每月"]];
+  var LOCAL_NAMES = { "5h": "5 小时", "weekly": "每周", "monthly": "每月" };
   var btn = document.getElementById("refresh");
   var content = document.getElementById("content");
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
   function usd(v) { v = Number(v) || 0; return "$" + (v > 0 && v < 0.01 ? v.toFixed(4) : v.toFixed(2)); }
   function countdown(t) {
     var ms = new Date(t).getTime() - Date.now();
+    if (!t || isNaN(ms)) return "";
     if (!(ms > 0)) return "已重置";
     var h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
     return h > 0 ? h + " 小时 " + m + " 分后重置" : m + " 分钟后重置";
   }
-  function row(w) {
+  function bar(pct, hot) {
+    return '<div class="bar"><i class="' + (hot ? "hot" : "") + '" style="width:' + Math.min(100, Math.max(0, pct)) + '%"></i></div>';
+  }
+  function upstreamRow(name, w) {
+    w = w || {};
+    var pct = Number(w.percent) || 0;
+    var bad = w.status && w.status !== "ok";
+    return '<div class="row"><div class="head"><span class="name">' + esc(name) + '</span><span>已用 ' + pct.toFixed(1) + '%'
+      + (bad ? ' <span class="blocked">' + esc(w.status) + '</span>' : '')
+      + '</span></div>' + bar(pct, pct >= 100 || bad)
+      + '<div class="head"><span></span><span style="opacity:.6">' + esc(countdown(w.resetsAt)) + '</span></div></div>';
+  }
+  function localRow(w) {
     var pct = Number(w.percent) || 0;
     var hot = w.blocked || pct >= 100;
-    return '<div class="row"><div class="head"><span class="name">' + esc(WINDOW_NAMES[w.name] || w.name)
+    return '<div class="row"><div class="head"><span class="name">' + esc(LOCAL_NAMES[w.name] || w.name)
       + '</span><span>' + usd(w.spent_usd) + (w.limit_usd > 0 ? " / " + usd(w.limit_usd) + "（" + pct.toFixed(1) + "%）" : "")
-      + (w.blocked ? ' <span class="blocked">已限流 · ' + esc(countdown(w.resets_at)) + "</span>" : "")
-      + '</span></div><div class="bar"><i class="' + (hot ? "hot" : "") + '" style="width:' + Math.min(100, pct) + '%"></i></div>'
-      + '<div class="head"><span></span><span style="opacity:.6">' + esc(countdown(w.resets_at)) + "</span></div></div>";
+      + (w.blocked ? ' <span class="blocked">已限流</span>' : "")
+      + '</span></div>' + bar(pct, hot)
+      + '<div class="head"><span></span><span style="opacity:.6">' + esc(countdown(w.resets_at)) + '</span></div></div>';
   }
   function render(data) {
     var creds = (data && data.credentials) || [];
@@ -64,26 +79,32 @@
       return;
     }
     content.innerHTML = creds.map(function (c) {
-      var total = (c.total || []).map(row).join("");
+      var primary, fallback = "";
+      if (c.upstream) {
+        primary = UPSTREAM_WINDOWS.map(function (p) { return upstreamRow(p[1], c.upstream[p[0]]); }).join("");
+      } else {
+        primary = (c.total || []).map(localRow).join("");
+        fallback = '<div class="fallback">上游用量暂时读不到，以上为本地估算。</div>';
+      }
       var models = (c.models || []).map(function (m) {
         return "<tr><td>" + esc(m.model) + "</td><td>" + (m.windows || []).map(function (w) {
-          return esc(WINDOW_NAMES[w.name] || w.name) + " " + (w.limit_usd > 0 ? (Number(w.percent) || 0).toFixed(1) + "%" : "未知价格") + (w.blocked ? "（限流）" : "");
+          return esc(LOCAL_NAMES[w.name] || w.name) + " " + (w.limit_usd > 0 ? (Number(w.percent) || 0).toFixed(1) + "%" : "未知价格");
         }).join("<br>") + "</td></tr>";
       }).join("");
       return '<div class="card"><div class="label">' + esc(c.label || c.auth_id) + "</div>"
-        + '<div class="head"><span class="name">合计</span></div>' + total
-        + (models ? "<details><summary>按模型明细</summary><table><tr><th>模型</th><th>窗口</th></tr>" + models + "</table></details>" : "")
+        + primary + fallback
+        + (models ? "<details><summary>按模型明细（本地估算）</summary><table><tr><th>模型</th><th>窗口</th></tr>" + models + "</table></details>" : "")
         + "</div>";
     }).join("");
   }
-  function load() {
+  function load(refresh) {
     btn.disabled = true;
-    fetch("./quota/data").then(function (r) { return r.json(); }).then(function (d) { render(d); })
+    fetch("./quota/data" + (refresh ? "?refresh=1" : "")).then(function (r) { return r.json(); }).then(function (d) { render(d); })
       .catch(function () { content.innerHTML = '<div class="empty">加载失败，请重试。</div>'; })
       .finally(function () { btn.disabled = false; });
   }
-  btn.addEventListener("click", load);
-  load();
+  btn.addEventListener("click", function () { load(true); });
+  load(false);
 })();
 </script>
 </body>

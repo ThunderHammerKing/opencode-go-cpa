@@ -27,7 +27,7 @@ const ProviderID = "opencode-go"
 // (opencode-go-cpa-v0.1.0.dylib minus version/extension).
 const (
 	pluginName    = "opencode-go-cpa"
-	pluginVersion = "0.1.1"
+	pluginVersion = "0.1.2"
 	pluginAuthor  = "ThunderHammerKing"
 )
 
@@ -54,11 +54,15 @@ type Manager struct {
 	mu   sync.RWMutex
 	cfg  config.Config
 	mgr  *catalog.Manager
-	// usage is the local spend accounting backing the quota page.
+	// usage is the local spend accounting backing the quota page's per-model
+	// breakdown.
 	usage *usage.Tracker
 	// loginKey caches the most recently pasted credential so the catalog
 	// refresh can seed itself before any config key exists.
 	loginKey string
+	// quotaMu guards quotaCache, the short-lived upstream usage snapshots.
+	quotaMu    sync.Mutex
+	quotaCache map[string]cachedQuota
 	// stop/done manage the one background refresh goroutine; both nil
 	// when no loop is running.
 	stop chan struct{}
@@ -67,7 +71,7 @@ type Manager struct {
 
 // NewManager returns a dispatcher whose outbound traffic flows through bridge.
 func NewManager(bridge *HostBridge) *Manager {
-	return &Manager{bridge: bridge, usage: usage.NewTracker()}
+	return &Manager{bridge: bridge, usage: usage.NewTracker(), quotaCache: map[string]cachedQuota{}}
 }
 
 // HandleCall dispatches one RPC method and returns envelope bytes. Handler
@@ -140,6 +144,28 @@ func (m *Manager) HandleCall(method string, request []byte) (resp []byte, err er
 			return ErrEnvelope("auth_failure", err.Error()), nil
 		}
 		return okEnvelope(resp), nil
+	case pluginabi.MethodQuotaIdentifier:
+		return okEnvelope(map[string]string{"identifier": m.quotaIdentifier()}), nil
+	case pluginabi.MethodQuotaDescribe:
+		resp, err := m.quotaDescribe(context.Background())
+		if err != nil {
+			return ErrEnvelope("quota_failure", err.Error()), nil
+		}
+		return okEnvelope(resp), nil
+	case pluginabi.MethodQuotaFetch:
+		var req struct {
+			pluginapi.QuotaFetchRequest
+		}
+		if json.Unmarshal(request, &req) != nil {
+			return ErrEnvelope("invalid_request", "malformed quota fetch request body"), nil
+		}
+		resp, err := m.quotaFetch(context.Background(), req.QuotaFetchRequest)
+		if err != nil {
+			return ErrEnvelope("quota_failure", err.Error()), nil
+		}
+		return okEnvelope(resp), nil
+	case pluginabi.MethodQuotaReset:
+		return ErrEnvelope("unsupported", "opencode-go quota reset is not supported"), nil
 	case pluginabi.MethodManagementRegister:
 		return m.registerManagement(request)
 	case pluginabi.MethodManagementHandle:
@@ -176,6 +202,7 @@ type capabilities struct {
 	ExecutorInputFormats  []string                     `json:"executor_input_formats,omitempty"`
 	ExecutorOutputFormats []string                     `json:"executor_output_formats,omitempty"`
 	ManagementAPI         bool                         `json:"management_api"`
+	QuotaProvider         bool                         `json:"quota_provider"`
 }
 
 type registrationResult struct {
@@ -207,6 +234,7 @@ func registrationEnvelope() []byte {
 			ExecutorInputFormats:  formats,
 			ExecutorOutputFormats: formats,
 			ManagementAPI:         true,
+			QuotaProvider:         true,
 		},
 	})
 }
