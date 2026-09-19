@@ -230,9 +230,9 @@ func (t *Tracker) Snapshot(authID, label string, at time.Time) Snapshot {
 					oldestWeek = e.at
 				}
 			}
-			w.SpentUSD = round2(spent)
+			w.SpentUSD = round4(spent)
 			if known {
-				w.LimitUSD = round2(p.Monthly * windowFractions[name])
+				w.LimitUSD = round4(p.Monthly * windowFractions[name])
 				w.Percent = round2(spent / w.LimitUSD * 100)
 			}
 			w.ResetsAt = windowReset(name, at, oldest5h, oldestWeek)
@@ -256,7 +256,7 @@ func (t *Tracker) Snapshot(authID, label string, at time.Time) Snapshot {
 		snap.Models = append(snap.Models, mu)
 	}
 	for _, name := range windowOrder {
-		w := Window{Name: name, SpentUSD: round2(totals[name]), LimitUSD: round2(limits[name])}
+		w := Window{Name: name, SpentUSD: round4(totals[name]), LimitUSD: round4(limits[name])}
 		if w.LimitUSD > 0 {
 			w.Percent = round2(w.SpentUSD / w.LimitUSD * 100)
 		}
@@ -361,7 +361,10 @@ func nextBoundary(name string, at time.Time) time.Time {
 	}
 }
 
+// round2 is for percentages; round4 keeps sub-cent dollar amounts visible
+// (a few hundred output tokens on a cheap model costs well under $0.01).
 func round2(v float64) float64 { return float64(int(v*100+0.5)) / 100 }
+func round4(v float64) float64 { return float64(int(v*10000+0.5)) / 10000 }
 
 // until2 keeps map comparisons readable without shadowing time.Time semantics.
 func until2(t time.Time) int64 {

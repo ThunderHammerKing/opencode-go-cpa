@@ -67,15 +67,42 @@ func (m *Manager) quotaData(ctx context.Context) (pluginapi.ManagementResponse, 
 	seen := make(map[string]bool, 8)
 	if m.bridge != nil {
 		if entries, err := m.bridge.AuthList(ctx); err == nil {
+			// The host reports a file-backed credential twice: once keyed by
+			// the .json file name and once as the synthesized runtime entry
+			// keyed by the auth id. Dedup on the stable runtime index and
+			// prefer the canonical entry (id without the .json suffix, label
+			// present) so the page shows one card per credential.
+			byIndex := make(map[string]pluginapi.HostAuthFileEntry, len(entries))
 			for _, e := range entries {
 				if (e.Type != "" && e.Type != ProviderID) || (e.Provider != "" && e.Provider != ProviderID) {
 					continue
 				}
-				id := e.ID
-				if id == "" {
-					id = e.AuthIndex
+				key := strings.TrimSpace(e.AuthIndex)
+				if key == "" {
+					key = strings.TrimSuffix(strings.TrimSpace(e.ID), ".json")
 				}
-				if id == "" || seen[id] {
+				if key == "" {
+					key = strings.TrimSuffix(strings.TrimSpace(e.Name), ".json")
+				}
+				if key == "" {
+					continue
+				}
+				if prev, ok := byIndex[key]; ok {
+					if strings.HasSuffix(e.ID, ".json") && !strings.HasSuffix(prev.ID, ".json") {
+						continue
+					}
+					if strings.TrimSpace(e.Label) == "" && strings.TrimSpace(prev.Label) != "" {
+						continue
+					}
+				}
+				byIndex[key] = e
+			}
+			for _, e := range byIndex {
+				id := strings.TrimSuffix(strings.TrimSpace(e.ID), ".json")
+				if id == "" {
+					id = strings.TrimSuffix(strings.TrimSpace(e.Name), ".json")
+				}
+				if id == "" {
 					continue
 				}
 				seen[id] = true

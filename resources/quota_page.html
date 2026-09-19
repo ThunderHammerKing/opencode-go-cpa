@@ -41,7 +41,7 @@
   var btn = document.getElementById("refresh");
   var content = document.getElementById("content");
   function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
-  function usd(v) { return "$" + (Number(v) || 0).toFixed(2); }
+  function usd(v) { v = Number(v) || 0; return "$" + (v > 0 && v < 0.01 ? v.toFixed(4) : v.toFixed(2)); }
   function countdown(t) {
     var ms = new Date(t).getTime() - Date.now();
     if (!(ms > 0)) return "已重置";

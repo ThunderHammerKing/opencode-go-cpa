@@ -436,7 +436,7 @@ func (m *Manager) executeStream(req executorRequest) ([]byte, error) {
 		if m.bridge != nil {
 			defer m.bridge.inFlight.Done()
 		}
-		m.pumpStream(downID, id, res, req.SourceFormat, req.AuthID)
+		m.pumpStream(downID, id, res, req.SourceFormat, usageAuthID(req))
 	}()
 	return okEnvelope(struct{}{}), nil
 }
@@ -577,6 +577,18 @@ func normalizeDeveloperRole(body []byte) []byte {
 	return out
 }
 
+// usageAuthID is the stable accounting identity for a credential: the same
+// hash-derived id the auth file carries (quotaIdentity), so the quota page
+// and the auth-file list agree on exactly one card per credential. Falls back
+// to the host-provided AuthID when the request carries no key.
+func usageAuthID(req executorRequest) string {
+	if key := strings.TrimSpace(req.AuthAttributes["api_key"]); key != "" {
+		id, _ := quotaIdentity(key)
+		return id
+	}
+	return strings.TrimSpace(req.AuthID)
+}
+
 // observeUsage records one completed non-stream request's tokens. The
 // downstream payload is chat-completions shaped, so both the OpenAI
 // prompt/completion naming and the Responses input/output naming are read.
@@ -610,7 +622,7 @@ func (m *Manager) observeUsage(req executorRequest, res *resolvedExecution, body
 	if u.PromptTokensDetails != nil {
 		cached = u.PromptTokensDetails.CachedTokens
 	}
-	m.usage.Observe(req.AuthID, res.rec.UpstreamID, in, cached, out, time.Now())
+	m.usage.Observe(usageAuthID(req), res.rec.UpstreamID, in, cached, out, time.Now())
 }
 
 // usageFromChunk best-effort extracts token usage from one upstream SSE
@@ -701,5 +713,5 @@ func (m *Manager) markLimited(req executorRequest, res *resolvedExecution, heade
 			}
 		}
 	}
-	m.usage.MarkLimited(req.AuthID, res.rec.UpstreamID, "", until, time.Now())
+	m.usage.MarkLimited(usageAuthID(req), res.rec.UpstreamID, "", until, time.Now())
 }
