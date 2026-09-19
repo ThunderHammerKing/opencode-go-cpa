@@ -26,11 +26,19 @@ func TestManagementRegistration(t *testing.T) {
 		Resources []struct{ Path, Menu, Description string } `json:"resources"`
 	}
 	decodeResult(t, mustHandle(t, m, pluginabi.MethodManagementRegister, []byte(`{}`)), &got)
-	if len(got.Routes) != 0 {
-		t.Fatalf("routes = %+v, want none (quota is a resource page)", got.Routes)
+	// login-submit is a management route (resource routes are GET-only
+	// host-side); /quota is the sidebar menu, /quota/data and /login are
+	// registered with empty Menu to stay out of the sidebar.
+	if len(got.Routes) != 1 || got.Routes[0].Method != http.MethodPost || got.Routes[0].Path != "/plugins/"+pluginName+"/login-submit" {
+		t.Fatalf("routes = %+v", got.Routes)
 	}
-	if len(got.Resources) != 1 || got.Resources[0].Path != "/quota" || got.Resources[0].Menu != "OpenCode Go Quota" {
+	if len(got.Resources) != 3 {
 		t.Fatalf("resources = %+v", got.Resources)
+	}
+	for _, r := range got.Resources {
+		if r.Path == "/quota" && r.Menu != "OpenCode Go Quota" {
+			t.Fatalf("quota menu = %+v", got.Resources)
+		}
 	}
 	var registration registrationResult
 	decodeResult(t, mustHandle(t, m, pluginabi.MethodPluginRegister, lifecycleRequestBody(testValidYAML)), &registration)

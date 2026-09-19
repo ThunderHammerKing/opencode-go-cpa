@@ -238,10 +238,11 @@ func (m *Manager) registerManagement(request []byte) ([]byte, error) {
 	if err := json.Unmarshal(request, &req); err != nil {
 		return ErrEnvelope("invalid_request", "malformed management registration request body"), nil
 	}
-	// The quota page is the plugin's only menu entry. The login and
-	// quota-data resource paths are served on the same prefix without a menu
-	// (the login page is only reachable with a live state token from
-	// StartLogin, and the page JS fetches ./quota/data relatively).
+	// The quota page is the plugin's only sidebar menu entry. The login and
+	// quota-data resource paths must ALSO be registered (the host dispatches
+	// resource requests by registered path); empty Menu keeps them out of the
+	// sidebar. The login page is only useful with a live state token from
+	// StartLogin, and the page JS fetches ./quota/data relatively.
 	return okEnvelope(struct {
 		Routes []struct {
 			Method string `json:"method"`
@@ -253,11 +254,21 @@ func (m *Manager) registerManagement(request []byte) ([]byte, error) {
 			Description string `json:"description"`
 		} `json:"resources"`
 	}{
+		// login-submit is a management route (resource routes are GET-only
+		// host-side); the key page sends the management key it collected.
+		Routes: []struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		}{{Method: "POST", Path: "/plugins/" + pluginName + "/login-submit"}},
 		Resources: []struct {
 			Path        string `json:"path"`
 			Menu        string `json:"menu"`
 			Description string `json:"description"`
-		}{{Path: "/quota", Menu: "OpenCode Go Quota", Description: "View OpenCode Go usage windows (local accounting)."}},
+		}{
+			{Path: "/quota", Menu: "OpenCode Go Quota", Description: "View OpenCode Go usage windows (local accounting)."},
+			{Path: "/quota/data", Description: "Quota snapshot JSON for the quota page."},
+			{Path: "/login", Description: "Paste-your-API-key page for the login flow."},
+		},
 	}), nil
 }
 

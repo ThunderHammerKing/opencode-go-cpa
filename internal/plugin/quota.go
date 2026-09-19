@@ -35,9 +35,10 @@ func quotaIdentity(key string) (id, label string) {
 	return "opencode-go-key-" + hash, "OpenCode Go credential " + hash[:12]
 }
 
-// HandleManagement serves the plugin's resource routes. No management-route
-// quota API is registered: the Management Center's per-credential quota
-// buttons are hardcoded to native providers, so this page is the UI.
+// HandleManagement serves the plugin's resource routes plus the login-submit
+// management route. No management-route quota API is registered: the
+// Management Center's per-credential quota buttons are hardcoded to native
+// providers, so the page is the UI.
 func (m *Manager) HandleManagement(ctx context.Context, req pluginapi.ManagementRequest) (pluginapi.ManagementResponse, error) {
 	switch {
 	case req.Method == http.MethodGet && req.Path == quotaPagePath:
@@ -47,6 +48,11 @@ func (m *Manager) HandleManagement(ctx context.Context, req pluginapi.Management
 	case req.Method == http.MethodGet && req.Path == loginPagePath:
 		return htmlResponse(resources.LoginPage), nil
 	case req.Method == http.MethodPost && req.Path == loginPagePath:
+		return m.handleLoginSubmit(ctx, req.Body)
+	case req.Method == http.MethodPost && req.Path == "/v0/management/plugins/"+pluginName+"/login-submit":
+		// The page posts here because the host only dispatches GET on
+		// resource routes; the management key travels in the Authorization
+		// header and is validated by the host before we see the request.
 		return m.handleLoginSubmit(ctx, req.Body)
 	}
 	return pluginapi.ManagementResponse{StatusCode: http.StatusNotFound, Body: []byte(`{"error":"not found"}`)}, nil

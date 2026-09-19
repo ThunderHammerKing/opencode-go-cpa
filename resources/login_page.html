@@ -18,6 +18,7 @@
   .msg { margin-top: 12px; font-size: 13px; line-height: 1.5; display: none; }
   .err { color: light-dark(#c0341d, #ff8f7a); }
   .ok { color: light-dark(#1c7c3c, #7ad39a); }
+  .hint { font-size: 11px; opacity: .5; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -29,6 +30,9 @@
     <input id="key" type="password" autocomplete="off" required placeholder="sk-...">
     <label for="label">备注（可选）</label>
     <input id="label" type="text" placeholder="例如：主账号">
+    <label for="mgmt">管理密钥</label>
+    <input id="mgmt" type="password" autocomplete="off" placeholder="面板登录用的那个管理密钥">
+    <div class="hint">提交要写入 CPA，需要管理密钥（与面板登录相同）；页面已尝试自动填写。</div>
     <button id="go" type="submit">保存凭证</button>
   </form>
   <div id="msg" class="msg"></div>
@@ -39,28 +43,47 @@
   var form = document.getElementById("f");
   var btn = document.getElementById("go");
   var msg = document.getElementById("msg");
+  var mgmt = document.getElementById("mgmt");
   function show(text, cls) { msg.style.display = "block"; msg.className = "msg " + cls; msg.textContent = text; }
   if (!state) {
     form.style.display = "none";
     show("缺少登录会话。请回到管理面板，从「认证文件」重新发起 OpenCode Go 登录。", "err");
     return;
   }
+  // Best-effort prefill: the Management Center keeps its key in
+  // cli-proxy-api-webui::secure-storage. Values starting with "enc::v1::" are
+  // panel-encrypted and unreadable here — manual entry still works.
+  try {
+    var raw = localStorage.getItem("cli-proxy-api-webui::secure-storage");
+    if (raw && raw.indexOf("enc::v1::") !== 0) {
+      var v = raw;
+      try { v = JSON.parse(raw); } catch (e) {}
+      if (typeof v === "string" && v) mgmt.value = v;
+      else if (v && typeof v === "object") {
+        var cand = v.key || v.token || v.secret || v.management || v.value;
+        if (typeof cand === "string" && cand) mgmt.value = cand;
+      }
+    }
+  } catch (e) {}
   form.addEventListener("submit", function (ev) {
     ev.preventDefault();
     var key = document.getElementById("key").value.trim();
     var label = document.getElementById("label").value.trim();
+    var mk = mgmt.value.trim();
     if (!key) { show("请填写 API key。", "err"); return; }
+    if (!mk) { show("请填写管理密钥（与登录面板用的相同）。", "err"); return; }
     btn.disabled = true;
-    fetch(location.pathname, {
+    fetch("/v0/management/plugins/opencode-go-cpa/login-submit", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + mk },
       body: JSON.stringify({ state: state, api_key: key, label: label })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d && d.status === "ok") {
+    }).then(function (r) { return r.json().then(function (d) { return { code: r.status, d: d }; }); }).then(function (r) {
+      if (r.code === 401) { show("管理密钥不对，请重新填写。", "err"); btn.disabled = false; return; }
+      if (r.d && r.d.status === "ok") {
         form.style.display = "none";
         show("已保存。回到管理面板即可，登录弹窗会自动完成。", "ok");
       } else {
-        show((d && d.error) || "保存失败，请重试。", "err");
+        show((r.d && r.d.error) || "保存失败，请重试。", "err");
         btn.disabled = false;
       }
     }).catch(function () {
