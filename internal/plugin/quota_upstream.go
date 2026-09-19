@@ -27,11 +27,12 @@ type upstreamWindow struct {
 	ResetsAt string `json:"resetsAt"`
 }
 
-// upstreamQuota is the flat view of GET {base}/usage.
+// upstreamQuota is the flat view of GET {base}/usage. The json tags are the
+// wire shape the page reads, so they must stay lowercase.
 type upstreamQuota struct {
-	Rolling upstreamWindow
-	Weekly  upstreamWindow
-	Monthly upstreamWindow
+	Rolling upstreamWindow `json:"rolling"`
+	Weekly  upstreamWindow `json:"weekly"`
+	Monthly upstreamWindow `json:"monthly"`
 }
 
 // upstreamUsageEnvelope mirrors the wire shape: the three windows live under
