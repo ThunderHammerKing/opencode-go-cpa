@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Go 配额</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; padding: 24px; background: light-dark(#f6f6f4, #141414); color: light-dark(#1c1c1c, #e8e8e8); font-size: 13px; }
+  h1 { font-size: 17px; margin: 0; }
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  button { padding: 7px 14px; font-size: 13px; border: 1px solid light-dark(#cfcfc8, #3a3a3a); border-radius: 7px; background: light-dark(#fff, #1e1e1e); color: inherit; cursor: pointer; }
+  button:disabled { opacity: .5; }
+  .card { background: light-dark(#fff, #1e1e1e); border: 1px solid light-dark(#e2e2de, #2c2c2c); border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .label { font-weight: 600; margin-bottom: 10px; word-break: break-all; }
+  .row { margin: 8px 0; }
+  .head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .name { opacity: .7; }
+  .bar { height: 6px; border-radius: 3px; background: light-dark(#e8e8e4, #2c2c2c); overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: light-dark(#1c1c1c, #e8e8e8); }
+  .bar > i.hot { background: #c0341d; }
+  .blocked { color: #c0341d; font-weight: 600; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; opacity: .7; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid light-dark(#eee, #2a2a2a); }
+  .empty { padding: 40px; text-align: center; opacity: .7; border: 1px dashed light-dark(#cfcfc8, #3a3a3a); border-radius: 10px; }
+  .hint { margin-top: 10px; font-size: 12px; opacity: .6; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OpenCode Go 配额</h1>
+  <button id="refresh">刷新</button>
+</header>
+<div id="content"><div class="empty">加载中…</div></div>
+<div class="hint">用量按本地记账估算（token × 官方价目表，5h / 每周 / 每月三个窗口），不是上游权威数据；上游 429 会把对应窗口标红。</div>
+<script>
+(function () {
+  var WINDOW_NAMES = { "5h": "5 小时", "weekly": "每周", "monthly": "每月" };
+  var btn = document.getElementById("refresh");
+  var content = document.getElementById("content");
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+  function usd(v) { return "$" + (Number(v) || 0).toFixed(2); }
+  function countdown(t) {
+    var ms = new Date(t).getTime() - Date.now();
+    if (!(ms > 0)) return "已重置";
+    var h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
+    return h > 0 ? h + " 小时 " + m + " 分后重置" : m + " 分钟后重置";
+  }
+  function row(w) {
+    var pct = Number(w.percent) || 0;
+    var hot = w.blocked || pct >= 100;
+    return '<div class="row"><div class="head"><span class="name">' + esc(WINDOW_NAMES[w.name] || w.name)
+      + '</span><span>' + usd(w.spent_usd) + (w.limit_usd > 0 ? " / " + usd(w.limit_usd) + "（" + pct.toFixed(1) + "%）" : "")
+      + (w.blocked ? ' <span class="blocked">已限流 · ' + esc(countdown(w.resets_at)) + "</span>" : "")
+      + '</span></div><div class="bar"><i class="' + (hot ? "hot" : "") + '" style="width:' + Math.min(100, pct) + '%"></i></div>'
+      + '<div class="head"><span></span><span style="opacity:.6">' + esc(countdown(w.resets_at)) + "</span></div></div>";
+  }
+  function render(data) {
+    var creds = (data && data.credentials) || [];
+    if (!creds.length) {
+      content.innerHTML = '<div class="empty">还没有凭证。到「认证文件」发起 OpenCode Go 登录，粘贴 API key 即可。</div>';
+      return;
+    }
+    content.innerHTML = creds.map(function (c) {
+      var total = (c.total || []).map(row).join("");
+      var models = (c.models || []).map(function (m) {
+        return "<tr><td>" + esc(m.model) + "</td><td>" + (m.windows || []).map(function (w) {
+          return esc(WINDOW_NAMES[w.name] || w.name) + " " + (w.limit_usd > 0 ? (Number(w.percent) || 0).toFixed(1) + "%" : "未知价格") + (w.blocked ? "（限流）" : "");
+        }).join("<br>") + "</td></tr>";
+      }).join("");
+      return '<div class="card"><div class="label">' + esc(c.label || c.auth_id) + "</div>"
+        + '<div class="head"><span class="name">合计</span></div>' + total
+        + (models ? "<details><summary>按模型明细</summary><table><tr><th>模型</th><th>窗口</th></tr>" + models + "</table></details>" : "")
+        + "</div>";
+    }).join("");
+  }
+  function load() {
+    btn.disabled = true;
+    fetch("./quota/data").then(function (r) { return r.json(); }).then(function (d) { render(d); })
+      .catch(function () { content.innerHTML = '<div class="empty">加载失败，请重试。</div>'; })
+      .finally(function () { btn.disabled = false; });
+  }
+  btn.addEventListener("click", load);
+  load();
+})();
+</script>
+</body>
+</html>

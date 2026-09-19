@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "opencode-go-cpa",
+      "name": "OpenCode Go CPA",
+      "description": "OpenCode Go provider for CLIProxyAPI: one key pool serving chat-completions, messages, and responses upstream routes, GUI-managed credentials, and a local-usage quota page.",
+      "author": "ThunderHammerKing",
+      "version": "0.1.0",
+      "repository": "https://github.com/ThunderHammerKing/opencode-go-cpa",
+      "homepage": "https://github.com/ThunderHammerKing/opencode-go-cpa",
+      "license": "MIT",
+      "tags": ["provider"]
+    }
+  ]
+}

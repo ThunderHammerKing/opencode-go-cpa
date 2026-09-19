@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCode Go — 添加凭证</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: light-dark(#f6f6f4, #141414); color: light-dark(#1c1c1c, #e8e8e8); display: flex; min-height: 100vh; align-items: center; justify-content: center; }
+  .card { width: min(420px, 92vw); background: light-dark(#fff, #1e1e1e); border: 1px solid light-dark(#e2e2de, #2c2c2c); border-radius: 10px; padding: 28px; }
+  h1 { font-size: 17px; margin: 0 0 10px; }
+  p { font-size: 13px; line-height: 1.6; margin: 0 0 14px; opacity: .8; }
+  a { color: light-dark(#0a66d0, #6cb2ff); }
+  label { display: block; font-size: 12px; margin: 12px 0 5px; opacity: .75; }
+  input { width: 100%; box-sizing: border-box; padding: 9px 10px; font-size: 13px; border: 1px solid light-dark(#cfcfc8, #3a3a3a); border-radius: 7px; background: light-dark(#fbfbfa, #161616); color: inherit; }
+  button { margin-top: 16px; width: 100%; padding: 10px; font-size: 14px; border: 0; border-radius: 7px; background: light-dark(#1c1c1c, #e8e8e8); color: light-dark(#fff, #141414); cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { margin-top: 12px; font-size: 13px; line-height: 1.5; display: none; }
+  .err { color: light-dark(#c0341d, #ff8f7a); }
+  .ok { color: light-dark(#1c7c3c, #7ad39a); }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>OpenCode Go — 添加凭证</h1>
+  <p>OpenCode Go 没有 OAuth，登录就是拿 API key：先到 <a href="https://opencode.ai/auth" target="_blank" rel="noopener">opencode.ai/auth</a> 登录并复制 API key，然后粘贴到这里。</p>
+  <form id="f">
+    <label for="key">API key</label>
+    <input id="key" type="password" autocomplete="off" required placeholder="sk-...">
+    <label for="label">备注（可选）</label>
+    <input id="label" type="text" placeholder="例如：主账号">
+    <button id="go" type="submit">保存凭证</button>
+  </form>
+  <div id="msg" class="msg"></div>
+</div>
+<script>
+(function () {
+  var state = new URLSearchParams(location.search).get("state") || "";
+  var form = document.getElementById("f");
+  var btn = document.getElementById("go");
+  var msg = document.getElementById("msg");
+  function show(text, cls) { msg.style.display = "block"; msg.className = "msg " + cls; msg.textContent = text; }
+  if (!state) {
+    form.style.display = "none";
+    show("缺少登录会话。请回到管理面板，从「认证文件」重新发起 OpenCode Go 登录。", "err");
+    return;
+  }
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var key = document.getElementById("key").value.trim();
+    var label = document.getElementById("label").value.trim();
+    if (!key) { show("请填写 API key。", "err"); return; }
+    btn.disabled = true;
+    fetch(location.pathname, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: state, api_key: key, label: label })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d && d.status === "ok") {
+        form.style.display = "none";
+        show("已保存。回到管理面板即可，登录弹窗会自动完成。", "ok");
+      } else {
+        show((d && d.error) || "保存失败，请重试。", "err");
+        btn.disabled = false;
+      }
+    }).catch(function () {
+      show("网络错误，请重试。", "err");
+      btn.disabled = false;
+    });
+  });
+})();
+</script>
+</body>
+</html>
