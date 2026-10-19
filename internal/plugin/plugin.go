@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/catalog"
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/config"
@@ -27,7 +27,7 @@ const ProviderID = "opencode-go"
 // (opencode-go-cpa-v0.1.0.dylib minus version/extension).
 const (
 	pluginName    = "opencode-go-cpa"
-	pluginVersion = "0.1.5"
+	pluginVersion = "0.1.6"
 	pluginAuthor  = "ThunderHammerKing"
 )
 
@@ -568,7 +568,11 @@ func refreshOnce(parent context.Context, mgr *catalog.Manager, bridge *HostBridg
 	err := mgr.Refresh(ctx, apiKey)
 	if err != nil {
 		if bridge != nil {
-			_ = bridge.Log("warn", "catalog refresh failed", map[string]any{"error": err.Error()})
+			fields := map[string]any{"error": err.Error()}
+			if strings.Contains(err.Error(), "401") {
+				fields["hint"] = "a credential may be expired; create a new API key in the OpenCode console and re-login"
+			}
+			_ = bridge.Log("warn", "catalog refresh failed", fields)
 		}
 		return err
 	}

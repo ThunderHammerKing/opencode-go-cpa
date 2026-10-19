@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/config"
 	"github.com/ThunderHammerKing/opencode-go-cpa/resources"
@@ -17,6 +17,22 @@ import (
 // okHostResult is the envelope a successful host callback returns.
 func okHostResult() []byte {
 	return []byte(`{"ok":true,"result":{}}`)
+}
+
+// TestQuotaHint locks the operator-facing mapping for upstream failures: the
+// expired-key case is the one that silently blanked the catalog in practice.
+func TestQuotaHint(t *testing.T) {
+	expired := quotaHint(http.StatusUnauthorized, []byte(`{"error":{"type":"authentication_error","code":"api_key_expired","message":"This API key has expired"}}`))
+	if !strings.Contains(expired, "已过期") || !strings.Contains(expired, "控制台") {
+		t.Fatalf("expired hint = %q", expired)
+	}
+	credits := quotaHint(http.StatusUnauthorized, []byte(`{"type":"error","error":{"type":"CreditsError","message":"Insufficient balance"}}`))
+	if !strings.Contains(credits, "余额") {
+		t.Fatalf("credits hint = %q", credits)
+	}
+	if got := quotaHint(http.StatusBadGateway, []byte(`oops`)); !strings.Contains(got, "502") {
+		t.Fatalf("generic hint = %q", got)
+	}
 }
 
 func TestManagementRegistration(t *testing.T) {

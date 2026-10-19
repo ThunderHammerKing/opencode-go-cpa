@@ -27,6 +27,7 @@
   .empty { padding: 40px; text-align: center; opacity: .7; border: 1px dashed light-dark(#cfcfc8, #3a3a3a); border-radius: 10px; }
   .hint { margin-top: 10px; font-size: 12px; opacity: .6; }
   .fallback { margin-top: 10px; font-size: 12px; opacity: .6; }
+  .err-banner { margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.5; color: #c0341d; background: color-mix(in srgb, #c0341d 10%, transparent); }
 </style>
 </head>
 <body>
@@ -94,15 +95,16 @@
         primary = UPSTREAM_WINDOWS.map(function (p) { return upstreamRow(p[1], c.upstream[p[0]]); }).join("");
       } else {
         primary = (c.total || []).map(localRow).join("");
-        fallback = '<div class="fallback">上游用量暂时读不到，以上为本地估算。</div>';
+        fallback = c.upstream_error ? "" : '<div class="fallback">上游用量暂时读不到，以上为本地估算。</div>';
       }
+      var banner = c.upstream_error ? '<div class="err-banner">' + esc(c.upstream_error) + "</div>" : "";
       var models = (c.models || []).map(function (m) {
         return "<tr><td>" + esc(m.model) + "</td><td>" + (m.windows || []).map(function (w) {
           return esc(LOCAL_NAMES[w.name] || w.name) + " " + (w.limit_usd > 0 ? (Number(w.percent) || 0).toFixed(1) + "%" : "未知价格");
         }).join("<br>") + "</td></tr>";
       }).join("");
       return '<div class="card"><div class="label">' + esc(c.label || c.auth_id) + "</div>"
-        + primary + fallback
+        + banner + primary + fallback
         + (models ? "<details><summary>按模型明细（本地估算）</summary><table><tr><th>模型</th><th>窗口</th></tr>" + models + "</table></details>" : "")
         + "</div>";
     }).join("");

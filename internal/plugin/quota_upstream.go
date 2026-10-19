@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
 // upstreamQuotaTTL bounds how often a credential's usage is re-read. The page
@@ -48,15 +48,43 @@ type upstreamUsageEnvelope struct {
 type cachedQuota struct {
 	at   time.Time
 	data *upstreamQuota
+	hint string
 }
 
-// fetchUpstreamQuota reads the live usage for one credential's key.
-func (m *Manager) fetchUpstreamQuota(ctx context.Context, key string) (*upstreamQuota, error) {
+// quotaHint turns an upstream failure into a short operator-facing hint. The
+// console is the only place a key can be replaced, so say so explicitly
+// instead of leaving the page in a silent "no data" state.
+func quotaHint(status int, body []byte) string {
+	var env struct {
+		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(body, &env)
+	switch {
+	case env.Error.Code == "api_key_expired":
+		return "凭证已过期：请到 OpenCode 控制台创建新的 API key 后重新登录"
+	case strings.EqualFold(env.Error.Type, "CreditsError") || env.Error.Code == "insufficient_balance":
+		return "上游余额不足：请检查 OpenCode 订阅或余额"
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return fmt.Sprintf("凭证被上游拒绝（HTTP %d）：请重新登录或更换 API key", status)
+	case status > 0:
+		return fmt.Sprintf("上游用量读取失败（HTTP %d）", status)
+	default:
+		return "上游用量读取失败"
+	}
+}
+
+// fetchUpstreamQuota reads the live usage for one credential's key. Exactly
+// one of the results is non-empty: data on success, a hint on failure.
+func (m *Manager) fetchUpstreamQuota(ctx context.Context, key string) (*upstreamQuota, string) {
 	if m.bridge == nil {
-		return nil, fmt.Errorf("quota bridge unavailable")
+		return nil, "插件未连接到宿主，无法读取上游用量"
 	}
 	if strings.TrimSpace(key) == "" {
-		return nil, fmt.Errorf("quota credential has no key")
+		return nil, "凭证没有 API key"
 	}
 	m.mu.RLock()
 	baseURL, timeout := m.cfg.BaseURL, m.cfg.RequestTimeout
@@ -69,40 +97,43 @@ func (m *Manager) fetchUpstreamQuota(ctx context.Context, key string) (*upstream
 		Headers: http.Header{"Authorization": []string{"Bearer " + key}, "Accept": []string{"application/json"}},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("quota request failed")
+		return nil, "网络错误：读取上游用量失败"
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("quota upstream status %d", resp.StatusCode)
+		return nil, quotaHint(resp.StatusCode, resp.Body)
 	}
 	var env upstreamUsageEnvelope
 	if err := json.Unmarshal(resp.Body, &env); err != nil {
-		return nil, fmt.Errorf("quota response invalid")
+		return nil, "上游用量响应格式异常"
 	}
 	return &upstreamQuota{
 		Rolling: env.Usage.Rolling,
 		Weekly:  env.Usage.Weekly,
 		Monthly: env.Usage.Monthly,
-	}, nil
+	}, ""
 }
 
 // cachedUpstreamQuota serves the usage from a short-lived cache. A failed
-// refresh keeps serving the last good snapshot (stale-while-unavailable),
-// because a usage hiccup must not blank the page.
-func (m *Manager) cachedUpstreamQuota(ctx context.Context, authID, key string, refresh bool) *upstreamQuota {
+// refresh keeps serving the last good snapshot (stale-while-unavailable) but
+// returns the failure hint so the page can explain what is wrong. Failures
+// are cached for the same TTL as successes so a dead credential is not
+// re-probed on every page load.
+func (m *Manager) cachedUpstreamQuota(ctx context.Context, authID, key string, refresh bool) (*upstreamQuota, string) {
 	m.quotaMu.Lock()
 	cached := m.quotaCache[authID]
 	m.quotaMu.Unlock()
-	if !refresh && cached.data != nil && time.Since(cached.at) < upstreamQuotaTTL {
-		return cached.data
+	if !refresh && time.Since(cached.at) < upstreamQuotaTTL {
+		return cached.data, cached.hint
 	}
-	data, err := m.fetchUpstreamQuota(ctx, key)
-	if err != nil {
-		return cached.data
-	}
+	data, hint := m.fetchUpstreamQuota(ctx, key)
 	m.quotaMu.Lock()
+	defer m.quotaMu.Unlock()
+	if hint != "" {
+		m.quotaCache[authID] = cachedQuota{at: time.Now(), data: cached.data, hint: hint}
+		return cached.data, hint
+	}
 	m.quotaCache[authID] = cachedQuota{at: time.Now(), data: data}
-	m.quotaMu.Unlock()
-	return data
+	return data, ""
 }
 
 // authKeyOf extracts the credential's API key for an upstream call: the
@@ -151,9 +182,12 @@ func (m *Manager) quotaFetch(ctx context.Context, req pluginapi.QuotaFetchReques
 	if key == "" {
 		return pluginapi.QuotaFetchResponse{}, fmt.Errorf("credential has no api key")
 	}
-	data, err := m.fetchUpstreamQuota(ctx, key)
-	if err != nil {
-		return pluginapi.QuotaFetchResponse{}, err
+	data, hint := m.fetchUpstreamQuota(ctx, key)
+	if hint != "" {
+		return pluginapi.QuotaFetchResponse{}, fmt.Errorf("%s", hint)
+	}
+	if data == nil {
+		return pluginapi.QuotaFetchResponse{}, fmt.Errorf("quota unavailable")
 	}
 	buckets := []pluginapi.QuotaBucket{
 		{Window: "5h", RemainingFraction: quotaWindowFraction(data.Rolling.Percent), ResetTime: data.Rolling.ResetsAt},

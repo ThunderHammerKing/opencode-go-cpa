@@ -15,7 +15,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/adapter/shared"
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/catalog"

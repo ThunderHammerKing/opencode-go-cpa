@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/config"
 	"github.com/ThunderHammerKing/opencode-go-cpa/internal/usage"
@@ -62,7 +62,8 @@ func (m *Manager) HandleManagement(ctx context.Context, req pluginapi.Management
 // windows when they could be read, plus the local per-model estimate.
 type quotaCredential struct {
 	usage.Snapshot
-	Upstream *upstreamQuota `json:"upstream,omitempty"`
+	Upstream      *upstreamQuota `json:"upstream,omitempty"`
+	UpstreamError string         `json:"upstream_error,omitempty"`
 }
 
 // authKeyByIndex resolves a credential's API key through the host, for the
@@ -136,7 +137,7 @@ func (m *Manager) quotaData(ctx context.Context, refresh bool) (pluginapi.Manage
 				seen[id] = true
 				cred := quotaCredential{Snapshot: m.usage.Snapshot(id, e.Label, now)}
 				if key := m.authKeyByIndex(ctx, e.AuthIndex); key != "" {
-					cred.Upstream = m.cachedUpstreamQuota(ctx, id, key, refresh)
+					cred.Upstream, cred.UpstreamError = m.cachedUpstreamQuota(ctx, id, key, refresh)
 				}
 				credentials = append(credentials, cred)
 			}
@@ -152,7 +153,7 @@ func (m *Manager) quotaData(ctx context.Context, refresh bool) (pluginapi.Manage
 		}
 		seen[id] = true
 		cred := quotaCredential{Snapshot: m.usage.Snapshot(id, label, now)}
-		cred.Upstream = m.cachedUpstreamQuota(ctx, id, k.Value, refresh)
+		cred.Upstream, cred.UpstreamError = m.cachedUpstreamQuota(ctx, id, k.Value, refresh)
 		credentials = append(credentials, cred)
 	}
 	if len(credentials) == 0 {
