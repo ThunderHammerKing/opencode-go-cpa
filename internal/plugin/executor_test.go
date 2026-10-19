@@ -453,7 +453,7 @@ func TestExecuteMessagesRouteNativeClaudePassesThrough(t *testing.T) {
 	if err := json.Unmarshal(env.Result, &out); err != nil {
 		t.Fatalf("result decode: %v", err)
 	}
-	if string(out.Payload) != claudeResponseBody {
+	if string(out.Payload) != strings.Replace(claudeResponseBody, `"model":"minimax-m3"`, `"model":"opencode-go/minimax-m3"`, 1) {
 		t.Fatalf("native passthrough altered body:\n%s\nwant\n%s", out.Payload, claudeResponseBody)
 	}
 	wire := lastWire(t, f, pluginabi.MethodHostHTTPDo)

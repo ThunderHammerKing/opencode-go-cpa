@@ -1275,7 +1275,7 @@ func TestE2EOpenAIClientToMessagesRoute(t *testing.T) {
 		t.Fatalf("payload not chat.completion: %v (%s)", err, out.Payload)
 	}
 	c0 := cc.Choices[0]
-	if cc.Object != "chat.completion" || cc.Model != "qwen3.7-max" ||
+	if cc.Object != "chat.completion" || cc.Model != "opencode-go/qwen3.7-max" ||
 		c0.FinishReason != "tool_calls" || len(c0.Message.ToolCalls) != 1 ||
 		c0.Message.ToolCalls[0].ID != "tu_e2e" ||
 		c0.Message.ToolCalls[0].Function.Name != "get_weather" ||

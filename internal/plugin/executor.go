@@ -139,6 +139,7 @@ func (m *Manager) handleExecute(request []byte) ([]byte, error) {
 	if eErr != nil {
 		return classEnvelope(eErr), nil
 	}
+	converted = alignResponseModel(converted, req.Model)
 	m.observeUsage(req, res, converted)
 	return okEnvelope(pluginapi.ExecutorResponse{Payload: converted, Headers: resp.Headers}), nil
 }
@@ -436,12 +437,12 @@ func (m *Manager) executeStream(req executorRequest) ([]byte, error) {
 		if m.bridge != nil {
 			defer m.bridge.inFlight.Done()
 		}
-		m.pumpStream(downID, id, res, req.SourceFormat, usageAuthID(req))
+		m.pumpStream(downID, id, res, req.SourceFormat, usageAuthID(req), req.Model)
 	}()
 	return okEnvelope(struct{}{}), nil
 }
 
-func (m *Manager) pumpStream(downID, upstreamID string, res *resolvedExecution, sourceFormat, authID string) {
+func (m *Manager) pumpStream(downID, upstreamID string, res *resolvedExecution, sourceFormat, authID, publicID string) {
 	var closeOnce sync.Once
 	closeStreams := func(downErrMsg string) {
 		closeOnce.Do(func() {
@@ -502,7 +503,7 @@ func (m *Manager) pumpStream(downID, upstreamID string, res *resolvedExecution, 
 			closeStreams(errclass.Redact(convErr.Message))
 			return
 		}
-		if emitErr := m.emitAll(downID, events); emitErr != nil {
+		if emitErr := m.emitAll(downID, alignStreamEvents(events, res.rec.UpstreamID, publicID)); emitErr != nil {
 			closeStreams(errclass.Redact(emitErr.Error()))
 			return
 		}
@@ -515,7 +516,7 @@ func (m *Manager) pumpStream(downID, upstreamID string, res *resolvedExecution, 
 	if !convDone && upstreamClosed {
 		if flusher, ok := conv.(interface{ Flush() [][]byte }); ok {
 			flushed := flusher.Flush()
-			if emitErr := m.emitAll(downID, flushed); emitErr != nil {
+			if emitErr := m.emitAll(downID, alignStreamEvents(flushed, res.rec.UpstreamID, publicID)); emitErr != nil {
 				closeStreams(errclass.Redact(emitErr.Error()))
 				return
 			}

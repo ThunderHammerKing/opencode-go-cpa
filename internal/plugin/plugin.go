@@ -27,7 +27,7 @@ const ProviderID = "opencode-go"
 // (opencode-go-cpa-v0.1.0.dylib minus version/extension).
 const (
 	pluginName    = "opencode-go-cpa"
-	pluginVersion = "0.1.4"
+	pluginVersion = "0.1.5"
 	pluginAuthor  = "ThunderHammerKing"
 )
 
